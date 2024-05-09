@@ -80,3 +80,4 @@ stamp-*
 *.1
 .dirstamp
 gprofng/*
+binutils/bfdtest*
