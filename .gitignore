@@ -79,3 +79,4 @@ stamp-*
 .*.swp
 *.1
 .dirstamp
+gprofng/*
