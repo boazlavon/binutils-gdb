@@ -72,4 +72,10 @@ stamp-*
 /mpc*
 /gmp*
 /isl*
+
 /gettext*
+*.swp
+
+.*.swp
+*.1
+.dirstamp
