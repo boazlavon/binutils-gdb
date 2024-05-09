@@ -17,6 +17,9 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+#include <stdio.h>
+#include <stdlib.h>
+
 #include "gdbcmd.h"
 #include "regcache.h"
 #include "gdbthread.h"
@@ -40,9 +43,12 @@
 #include "async-event.h"
 #include "valprint.h"
 #include "interps.h"
+#include "cli/cli-dump.h"
 
 #include <signal.h>
 
+
+unsigned int record_full_debug = 1;
 /* This module implements "target record-full", also known as "process
    record and replay".  This target sits on top of a "normal" target
    (a target that "has execution"), and provides a record and replay
@@ -565,7 +571,7 @@ record_full_list_release_first (void)
 static void
 record_full_arch_list_add (struct record_full_entry *rec)
 {
-  if (record_debug > 1)
+  if (record_full_debug > 1)
     gdb_printf (gdb_stdlog,
 		"Process record: record_full_arch_list_add %s.\n",
 		host_address_to_string (rec));
@@ -612,7 +618,7 @@ record_full_arch_list_add_reg (struct regcache *regcache, int regnum)
 {
   struct record_full_entry *rec;
 
-  if (record_debug > 1)
+  if (record_full_debug > 1)
     gdb_printf (gdb_stdlog,
 		"Process record: add register num = %d to "
 		"record list.\n",
@@ -635,7 +641,7 @@ record_full_arch_list_add_mem (CORE_ADDR addr, int len)
 {
   struct record_full_entry *rec;
 
-  if (record_debug > 1)
+  if (record_full_debug > 1)
     gdb_printf (gdb_stdlog,
 		"Process record: add mem addr = %s len = %d to "
 		"record list.\n",
@@ -658,6 +664,39 @@ record_full_arch_list_add_mem (CORE_ADDR addr, int len)
   return 0;
 }
 
+static void write_int_to_tmp_file(int number, struct record_full_entry *rec) {
+    // Buffer for the filename
+    char filename[256] = {0};
+    char cmd[256] = {0};
+    const char* mode = "wb";
+    const char* file_format = "binary";
+
+    // Format the filename using the number and place it in the /tmp directory
+    snprintf(filename, sizeof(filename), "/tmp/%05d.bin", number);
+
+    // Format the filename using the number and place it in the /tmp directory
+    snprintf(cmd, sizeof(cmd), "/tmp/%05d.bin 0x7ffffffde000 0x7ffffffff000", number);
+
+    // Open the file for writing (in binary mode to use fwrite)
+    FILE *file = fopen(filename, "wb");
+    if (file == NULL) {
+        gdb_printf("gdb_stderr, Failed to open file: %s\n", filename);
+        return;
+    }
+    
+    dump_memory_to_file ((char*)cmd, mode, file_format);
+
+    // // Write the number to the file using fwrite
+    // if (fwrite(&number, sizeof(int), 1, file) != 1) {
+    //     gdb_printf("gdb_stderr, Failed to write to file\n");
+    // }
+
+    // Close the file
+    if (fclose(file) != 0) {
+        gdb_printf("gdb_stderr, Failed to close file\n");
+    }
+}
+
 /* Add a record_full_end type struct record_full_entry to
    record_full_arch_list.  */
 
@@ -666,7 +705,7 @@ record_full_arch_list_add_end (void)
 {
   struct record_full_entry *rec;
 
-  if (record_debug > 1)
+  if (record_full_debug > 1)
     gdb_printf (gdb_stdlog,
 		"Process record: add end to arch list.\n");
 
@@ -675,6 +714,8 @@ record_full_arch_list_add_end (void)
   rec->u.end.insn_num = ++record_full_insn_count;
 
   record_full_arch_list_add (rec);
+
+  write_int_to_tmp_file(record_full_insn_count, rec);
 
   return 0;
 }
@@ -824,7 +865,7 @@ record_full_exec_insn (struct regcache *regcache,
       {
 	gdb::byte_vector reg (entry->u.reg.len);
 
-	if (record_debug > 1)
+	if (record_full_debug > 1)
 	  gdb_printf (gdb_stdlog,
 		      "Process record: record_full_reg %s to "
 		      "inferior num = %d.\n",
@@ -844,7 +885,7 @@ record_full_exec_insn (struct regcache *regcache,
 	  {
 	    gdb::byte_vector mem (entry->u.mem.len);
 
-	    if (record_debug > 1)
+	    if (record_full_debug > 1)
 	      gdb_printf (gdb_stdlog,
 			  "Process record: record_full_mem %s to "
 			  "inferior addr = %s len = %d.\n",
@@ -863,7 +904,7 @@ record_full_exec_insn (struct regcache *regcache,
 					 entry->u.mem.len))
 		  {
 		    entry->u.mem.mem_entry_not_accessible = 1;
-		    if (record_debug)
+		    if (record_full_debug)
 		      warning (_("Process record: error writing memory at "
 				 "addr = %s len = %d."),
 			       paddress (gdbarch, entry->u.mem.addr),
@@ -935,7 +976,7 @@ record_full_core_open_1 ()
 static void
 record_full_open_1 ()
 {
-  if (record_debug)
+  if (record_full_debug)
     gdb_printf (gdb_stdlog, "Process record: record_full_open_1\n");
 
   /* check exec */
@@ -959,7 +1000,7 @@ static void record_full_init_record_breakpoints (void);
 static void
 record_full_open (const char *args, int from_tty)
 {
-  if (record_debug)
+  if (record_full_debug)
     gdb_printf (gdb_stdlog, "Process record: record_full_open\n");
 
   if (args != nullptr)
@@ -995,7 +1036,7 @@ record_full_base_target::close ()
 {
   struct record_full_core_buf_entry *entry;
 
-  if (record_debug)
+  if (record_full_debug)
     gdb_printf (gdb_stdlog, "Process record: record_full_close\n");
 
   record_full_list_release (record_full_list);
@@ -1116,7 +1157,7 @@ static int record_full_get_sig = 0;
 static void
 record_full_sig_handler (int signo)
 {
-  if (record_debug)
+  if (record_full_debug)
     gdb_printf (gdb_stdlog, "Process record: get a signal\n");
 
   /* It will break the running inferior in replay mode.  */
@@ -1148,7 +1189,7 @@ record_full_wait_1 (struct target_ops *ops,
   scoped_restore restore_operation_disable
     = record_full_gdb_operation_disable_set ();
 
-  if (record_debug)
+  if (record_full_debug)
     gdb_printf (gdb_stdlog,
 		"Process record: record_full_wait "
 		"record_full_resume_step = %d, "
@@ -1191,7 +1232,7 @@ record_full_wait_1 (struct target_ops *ops,
 	      ret = ops->beneath ()->wait (ptid, status, options);
 	      if (status->kind () == TARGET_WAITKIND_IGNORE)
 		{
-		  if (record_debug)
+		  if (record_full_debug)
 		    gdb_printf (gdb_stdlog,
 				"Process record: record_full_wait "
 				"target beneath not done yet\n");
@@ -1266,7 +1307,7 @@ record_full_wait_1 (struct target_ops *ops,
 			  step = !insert_single_step_breakpoints (gdbarch);
 			}
 
-		      if (record_debug)
+		      if (record_full_debug)
 			gdb_printf (gdb_stdlog,
 				    "Process record: record_full_wait "
 				    "issuing one more step in the "
@@ -1310,7 +1351,7 @@ record_full_wait_1 (struct target_ops *ops,
 	      if (record_check_stopped_by_breakpoint (aspace, tmp_pc,
 						      &record_full_stop_reason))
 		{
-		  if (record_debug)
+		  if (record_full_debug)
 		    gdb_printf (gdb_stdlog,
 				"Process record: break at %s.\n",
 				paddress (gdbarch, tmp_pc));
@@ -1354,7 +1395,7 @@ record_full_wait_1 (struct target_ops *ops,
 
 	      if (record_full_list->type == record_full_end)
 		{
-		  if (record_debug > 1)
+		  if (record_full_debug > 1)
 		    gdb_printf
 		      (gdb_stdlog,
 		       "Process record: record_full_end %s to "
@@ -1378,7 +1419,7 @@ record_full_wait_1 (struct target_ops *ops,
 		      /* step */
 		      if (record_full_resume_step)
 			{
-			  if (record_debug > 1)
+			  if (record_full_debug > 1)
 			    gdb_printf (gdb_stdlog,
 					"Process record: step.\n");
 			  continue_flag = 0;
@@ -1389,7 +1430,7 @@ record_full_wait_1 (struct target_ops *ops,
 		      if (record_check_stopped_by_breakpoint
 			  (aspace, tmp_pc, &record_full_stop_reason))
 			{
-			  if (record_debug)
+			  if (record_full_debug)
 			    gdb_printf (gdb_stdlog,
 					"Process record: break "
 					"at %s.\n",
@@ -1401,7 +1442,7 @@ record_full_wait_1 (struct target_ops *ops,
 		      if (record_full_stop_reason
 			  == TARGET_STOPPED_BY_WATCHPOINT)
 			{
-			  if (record_debug)
+			  if (record_full_debug)
 			    gdb_printf (gdb_stdlog,
 					"Process record: hit hw "
 					"watchpoint.\n");
@@ -1670,7 +1711,7 @@ record_full_target::xfer_partial (enum target_object object,
       if (record_full_arch_list_add_mem (offset, len))
 	{
 	  record_full_list_release (record_full_arch_list_tail);
-	  if (record_debug)
+	  if (record_full_debug)
 	    gdb_printf (gdb_stdlog,
 			"Process record: failed to record "
 			"execution log.");
@@ -1679,7 +1720,7 @@ record_full_target::xfer_partial (enum target_object object,
       if (record_full_arch_list_add_end ())
 	{
 	  record_full_list_release (record_full_arch_list_tail);
-	  if (record_debug)
+	  if (record_full_debug)
 	    gdb_printf (gdb_stdlog,
 			"Process record: failed to record "
 			"execution log.");
@@ -1852,7 +1893,7 @@ record_full_base_target::get_bookmark (const char *args, int from_tty)
   if (record_full_list && record_full_list->type == record_full_end)
     ret = xstrdup (pulongest (record_full_list->u.end.insn_num));
 
-  if (record_debug)
+  if (record_full_debug)
     {
       if (ret)
 	gdb_printf (gdb_stdlog,
@@ -1872,7 +1913,7 @@ record_full_base_target::goto_bookmark (const gdb_byte *raw_bookmark,
 {
   const char *bookmark = (const char *) raw_bookmark;
 
-  if (record_debug)
+  if (record_full_debug)
     gdb_printf (gdb_stdlog,
 		"record_full_goto_bookmark receives %s\n", bookmark);
 
@@ -2079,7 +2120,7 @@ record_full_core_target::resume (ptid_t ptid, int step,
 void
 record_full_core_target::kill ()
 {
-  if (record_debug)
+  if (record_full_debug)
     gdb_printf (gdb_stdlog, "Process record: record_full_core_kill\n");
 
   current_inferior ()->unpush_target (this);
@@ -2337,18 +2378,18 @@ record_full_restore (void)
   /* "record_full_restore" can only be called when record list is empty.  */
   gdb_assert (record_full_first.next == NULL);
  
-  if (record_debug)
+  if (record_full_debug)
     gdb_printf (gdb_stdlog, "Restoring recording from core file.\n");
 
   /* Now need to find our special note section.  */
   osec = bfd_get_section_by_name (current_program_space->core_bfd (), "null0");
-  if (record_debug)
+  if (record_full_debug)
     gdb_printf (gdb_stdlog, "Find precord section %s.\n",
 		osec ? "succeeded" : "failed");
   if (osec == NULL)
     return;
   osec_size = bfd_section_size (osec);
-  if (record_debug)
+  if (record_full_debug)
     gdb_printf (gdb_stdlog, "%s", bfd_section_name (osec));
 
   /* Check the magic code.  */
@@ -2357,7 +2398,7 @@ record_full_restore (void)
   if (magic != RECORD_FULL_FILE_MAGIC)
     error (_("Version mis-match or file format error in core file %s."),
 	   bfd_get_filename (current_program_space->core_bfd ()));
-  if (record_debug)
+  if (record_full_debug)
     gdb_printf (gdb_stdlog,
 		"  Reading 4-byte magic cookie "
 		"RECORD_FULL_FILE_MAGIC (0x%s)\n",
@@ -2400,7 +2441,7 @@ record_full_restore (void)
 			    record_full_get_loc (rec), rec->u.reg.len,
 			    &bfd_offset);
 
-	      if (record_debug)
+	      if (record_full_debug)
 		gdb_printf (gdb_stdlog,
 			    "  Reading register %d (1 "
 			    "plus %lu plus %d bytes)\n",
@@ -2427,7 +2468,7 @@ record_full_restore (void)
 			    record_full_get_loc (rec), rec->u.mem.len,
 			    &bfd_offset);
 
-	      if (record_debug)
+	      if (record_full_debug)
 		gdb_printf (gdb_stdlog,
 			    "  Reading memory %s (1 plus "
 			    "%lu plus %lu plus %d bytes)\n",
@@ -2454,7 +2495,7 @@ record_full_restore (void)
 	      count = netorder32 (count);
 	      rec->u.end.insn_num = count;
 	      record_full_insn_count = count + 1;
-	      if (record_debug)
+	      if (record_full_debug)
 		gdb_printf (gdb_stdlog,
 			    "  Reading record_full_end (1 + "
 			    "%lu + %lu bytes), offset == %s\n",
@@ -2540,7 +2581,7 @@ record_full_base_target::save_record (const char *recfilename)
   int bfd_offset = 0;
 
   /* Open the save file.  */
-  if (record_debug)
+  if (record_full_debug)
     gdb_printf (gdb_stdlog, "Saving execution log to core file '%s'\n",
 		recfilename);
 
@@ -2609,7 +2650,7 @@ record_full_base_target::save_record (const char *recfilename)
   /* Write out the record log.  */
   /* Write the magic code.  */
   magic = RECORD_FULL_FILE_MAGIC;
-  if (record_debug)
+  if (record_full_debug)
     gdb_printf (gdb_stdlog,
 		"  Writing 4-byte magic cookie "
 		"RECORD_FULL_FILE_MAGIC (0x%s)\n",
@@ -2634,7 +2675,7 @@ record_full_base_target::save_record (const char *recfilename)
 	  switch (record_full_list->type)
 	    {
 	    case record_full_reg: /* reg */
-	      if (record_debug)
+	      if (record_full_debug)
 		gdb_printf (gdb_stdlog,
 			    "  Writing register %d (1 "
 			    "plus %lu plus %d bytes)\n",
@@ -2654,7 +2695,7 @@ record_full_base_target::save_record (const char *recfilename)
 	      break;
 
 	    case record_full_mem: /* mem */
-	      if (record_debug)
+	      if (record_full_debug)
 		gdb_printf (gdb_stdlog,
 			    "  Writing memory %s (1 plus "
 			    "%lu plus %lu plus %d bytes)\n",
@@ -2681,7 +2722,7 @@ record_full_base_target::save_record (const char *recfilename)
 	      break;
 
 	      case record_full_end:
-		if (record_debug)
+		if (record_full_debug)
 		  gdb_printf (gdb_stdlog,
 			      "  Writing record_full_end (1 + "
 			      "%lu + %lu bytes)\n", 

@@ -19,20 +19,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "cli/cli-decode.h"
-#include "cli/cli-cmds.h"
-#include "value.h"
-#include "completer.h"
-#include <ctype.h>
-#include "target.h"
-#include "readline/tilde.h"
-#include "gdbcore.h"
-#include "cli/cli-utils.h"
-#include "gdb_bfd.h"
-#include "gdbsupport/filestuff.h"
-#include "gdbsupport/byte-vector.h"
-#include "gdbarch.h"
-#include "inferior.h"
+#include "cli-dump.h"
 
 static gdb::unique_xmalloc_ptr<char>
 scan_expression (const char **cmd, const char *def)
@@ -162,7 +149,7 @@ dump_bfd_file (const char *filename, const char *mode,
 	     bfd_errmsg (bfd_get_error ()));
 }
 
-static void
+void
 dump_memory_to_file (const char *cmd, const char *mode, const char *file_format)
 {
   CORE_ADDR lo;
