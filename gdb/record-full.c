@@ -664,7 +664,8 @@ record_full_arch_list_add_mem (CORE_ADDR addr, int len)
   return 0;
 }
 
-static void write_int_to_tmp_file(int number, struct record_full_entry *rec) {
+static void dump_state(int record_number, struct record_full_entry *rec) {
+    return;
     // Buffer for the filename
     char filename[256] = {0};
     char cmd[256] = {0};
@@ -672,10 +673,10 @@ static void write_int_to_tmp_file(int number, struct record_full_entry *rec) {
     const char* file_format = "binary";
 
     // Format the filename using the number and place it in the /tmp directory
-    snprintf(filename, sizeof(filename), "/tmp/%05d.bin", number);
+    snprintf(filename, sizeof(filename), "/tmp/%05d.bin", record_number);
 
     // Format the filename using the number and place it in the /tmp directory
-    snprintf(cmd, sizeof(cmd), "/tmp/%05d.bin 0x7ffffffde000 0x7ffffffff000", number);
+    snprintf(cmd, sizeof(cmd), "/tmp/%05d.bin 0x7ffffffde000 0x7ffffffff000", record_number);
 
     // Open the file for writing (in binary mode to use fwrite)
     FILE *file = fopen(filename, "wb");
@@ -715,7 +716,10 @@ record_full_arch_list_add_end (void)
 
   record_full_arch_list_add (rec);
 
-  write_int_to_tmp_file(record_full_insn_count, rec);
+  // dump the current operation who led to that state (or operations)
+  // dump the current state
+
+  dump_state(record_full_insn_count, rec);
 
   return 0;
 }
@@ -1189,7 +1193,7 @@ record_full_wait_1 (struct target_ops *ops,
   scoped_restore restore_operation_disable
     = record_full_gdb_operation_disable_set ();
 
-  if (record_full_debug)
+  if (record_full_debug == 2)
     gdb_printf (gdb_stdlog,
 		"Process record: record_full_wait "
 		"record_full_resume_step = %d, "
@@ -1232,7 +1236,7 @@ record_full_wait_1 (struct target_ops *ops,
 	      ret = ops->beneath ()->wait (ptid, status, options);
 	      if (status->kind () == TARGET_WAITKIND_IGNORE)
 		{
-		  if (record_full_debug)
+		  if (record_full_debug == 2)
 		    gdb_printf (gdb_stdlog,
 				"Process record: record_full_wait "
 				"target beneath not done yet\n");
@@ -1307,7 +1311,7 @@ record_full_wait_1 (struct target_ops *ops,
 			  step = !insert_single_step_breakpoints (gdbarch);
 			}
 
-		      if (record_full_debug)
+		      if (record_full_debug == 2)
 			gdb_printf (gdb_stdlog,
 				    "Process record: record_full_wait "
 				    "issuing one more step in the "
@@ -2315,6 +2319,7 @@ record_full_core_target::has_execution (inferior *inf)
      record_full_reg:
        1 byte:  record type (record_full_reg, see enum record_full_type).
        4 bytes: register id (network byte order).
+       4 bytes: register size (network byte order).
        n bytes: register value (n == actual register size).
 		(eg. 4 bytes for x86 general registers).
      record_full_mem:
@@ -2625,7 +2630,7 @@ record_full_base_target::save_record (const char *recfilename)
 	save_size += 1 + 4 + 4;
 	break;
       case record_full_reg:
-	save_size += 1 + 4 + record_full_list->u.reg.len;
+	save_size += 1 + 4 + 4 + record_full_list->u.reg.len;
 	break;
       case record_full_mem:
 	save_size += 1 + 4 + 8 + record_full_list->u.mem.len;
@@ -2666,7 +2671,7 @@ record_full_base_target::save_record (const char *recfilename)
       if (record_full_list != &record_full_first)
 	{
 	  uint8_t type;
-	  uint32_t regnum, len, signal, count;
+	  uint32_t regnum, reglen, len, signal, count;
 	  uint64_t addr;
 
 	  type = record_full_list->type;
@@ -2678,15 +2683,21 @@ record_full_base_target::save_record (const char *recfilename)
 	      if (record_full_debug)
 		gdb_printf (gdb_stdlog,
 			    "  Writing register %d (1 "
-			    "plus %lu plus %d bytes)\n",
+			    "plus %lu plus %lu plus %d bytes)\n",
 			    record_full_list->u.reg.num,
 			    (unsigned long) sizeof (regnum),
+			    (unsigned long) sizeof (reglen),
 			    record_full_list->u.reg.len);
 
 	      /* Write regnum.  */
 	      regnum = netorder32 (record_full_list->u.reg.num);
 	      bfdcore_write (obfd.get (), osec, &regnum,
 			     sizeof (regnum), &bfd_offset);
+
+	      // /* Write reglen.  */
+	      reglen = netorder32 (record_full_list->u.reg.len);
+	      bfdcore_write (obfd.get (), osec, &reglen,
+			     sizeof (reglen), &bfd_offset);
 
 	      /* Write regval.  */
 	      bfdcore_write (obfd.get (), osec,
@@ -2725,9 +2736,11 @@ record_full_base_target::save_record (const char *recfilename)
 		if (record_full_debug)
 		  gdb_printf (gdb_stdlog,
 			      "  Writing record_full_end (1 + "
-			      "%lu + %lu bytes)\n", 
+			      "%lu + %lu bytes) - #%lu\n\n", 
 			      (unsigned long) sizeof (signal),
-			      (unsigned long) sizeof (count));
+		      (unsigned long) sizeof (count),
+          record_full_list->u.end.insn_num
+          );
 		/* Write signal value.  */
 		signal = netorder32 (record_full_list->u.end.sigval);
 		bfdcore_write (obfd.get (), osec, &signal,
