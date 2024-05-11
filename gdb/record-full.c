@@ -19,6 +19,10 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <string.h>
+#include <time.h>
 
 #include "gdbcmd.h"
 #include "regcache.h"
@@ -48,7 +52,7 @@
 #include <signal.h>
 
 
-unsigned int record_full_debug = 1;
+unsigned int record_full_debug = 0;
 /* This module implements "target record-full", also known as "process
    record and replay".  This target sits on top of a "normal" target
    (a target that "has execution"), and provides a record and replay
@@ -664,38 +668,104 @@ record_full_arch_list_add_mem (CORE_ADDR addr, int len)
   return 0;
 }
 
-static void dump_state(int record_number, struct record_full_entry *rec) {
-    return;
-    // Buffer for the filename
-    char filename[256] = {0};
-    char cmd[256] = {0};
+static
+int 
+create_state_record_dir(
+  char *dirname, 
+  const size_t dirname_max_len,
+  const int record_number,
+  size_t *dirname_len
+) {
+    size_t len = 0;
+    // Get the process ID
+    pid_t pid = getpid();
+
+    // Define the buffer for the process name and the path to read it from
+    char process_name[256] = {0};
+    char path[256] = {0};
+    snprintf(path, sizeof(path), "/proc/%d/comm", pid);
+
+    // Open the file and read the process name
+    FILE *file = fopen(path, "r");
+    if (!file) {
+        perror("Failed to open process comm file");
+        return EXIT_FAILURE;
+    }
+    if (fgets(process_name, sizeof(process_name), file) == NULL) {
+        perror("Failed to read process name");
+        fclose(file);
+        return EXIT_FAILURE;
+    }
+    fclose(file);
+
+    // Remove newline character from fgets
+    process_name[strcspn(process_name, "\n")] = 0;
+
+    // Create main dir
+    len = snprintf(dirname, dirname_max_len, "/tmp/%s_%d", process_name, pid);
+    (void)mkdir(dirname, 0755);
+    // printf("Directory created: %s\n", dirname);
+
+    // Create record dir
+    len += snprintf(dirname + len, dirname_max_len - len, "/%d", record_number);
+    (void)mkdir(dirname, 0755);
+    // printf("Directory created: %s\n", dirname);
+
+    (*dirname_len) = len;
+    return EXIT_SUCCESS;
+}
+
+static 
+void 
+create_memory_dump(
+  const int record_number, 
+  struct record_full_entry *rec, 
+  const char *record_state_dir, 
+  const size_t record_state_dir_len
+) {
+
+    char record_dump_path[512] = {0};
+    char cmd[512] = {0};
     const char* mode = "wb";
     const char* file_format = "binary";
 
-    // Format the filename using the number and place it in the /tmp directory
-    snprintf(filename, sizeof(filename), "/tmp/%05d.bin", record_number);
+    snprintf(record_dump_path, sizeof(record_dump_path), "%s/%d.bin", record_state_dir, record_number);
 
     // Format the filename using the number and place it in the /tmp directory
-    snprintf(cmd, sizeof(cmd), "/tmp/%05d.bin 0x7ffffffde000 0x7ffffffff000", record_number);
+    //snprintf(cmd, sizeof(cmd), "/tmp/%05d.bin 0x7ffffffde000 0x7ffffffff000", record_number);
+    snprintf(cmd, sizeof(cmd), "%s 0x7ffffffde000 0x7ffffffde002", (char*)record_dump_path);
 
     // Open the file for writing (in binary mode to use fwrite)
-    FILE *file = fopen(filename, "wb");
+    FILE *file = fopen(record_dump_path, "wb");
     if (file == NULL) {
-        gdb_printf("gdb_stderr, Failed to open file: %s\n", filename);
+        gdb_printf("gdb_stderr, Failed to open file: %s\n", record_dump_path);
         return;
     }
     
     dump_memory_to_file ((char*)cmd, mode, file_format);
 
-    // // Write the number to the file using fwrite
-    // if (fwrite(&number, sizeof(int), 1, file) != 1) {
-    //     gdb_printf("gdb_stderr, Failed to write to file\n");
-    // }
-
     // Close the file
     if (fclose(file) != 0) {
         gdb_printf("gdb_stderr, Failed to close file\n");
     }
+}
+
+static 
+void 
+dump_record_state(
+  const int record_number, 
+  struct record_full_entry *rec
+) {
+
+    // Buffer for the filename
+    char record_state_dir[256] = {0};
+    size_t dirname_len = 0;
+
+    if (create_state_record_dir((char *)record_state_dir, sizeof(record_state_dir), record_number, &dirname_len)) {
+      return;
+    }
+
+    create_memory_dump(record_number, rec, (char*)record_state_dir, dirname_len);
 }
 
 /* Add a record_full_end type struct record_full_entry to
@@ -719,7 +789,7 @@ record_full_arch_list_add_end (void)
   // dump the current operation who led to that state (or operations)
   // dump the current state
 
-  dump_state(record_full_insn_count, rec);
+  dump_record_state(record_full_insn_count, rec);
 
   return 0;
 }
