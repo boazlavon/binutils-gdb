@@ -2160,8 +2160,10 @@ pad_to_column (string_file &stream, int col)
 static void
 default_print_one_register_info (struct ui_file *file,
 				 const char *name,
+         int regnum,
 				 struct value *val)
 {
+  char regnum_str[10] = {0};
   struct type *regtype = val->type ();
   int print_raw_format;
   string_file format_stream;
@@ -2172,6 +2174,9 @@ default_print_one_register_info (struct ui_file *file,
 	 preceding column.  */
       value_column_2 = value_column_1 + 2 + 16 + 2,
     };
+
+  snprintf(regnum_str, sizeof(regnum_str) - 1, "%d\t", regnum);
+  format_stream.puts ((char*)regnum_str);
 
   format_stream.puts (name);
   pad_to_column (format_stream, value_column_1);
@@ -2274,13 +2279,14 @@ default_print_registers_info (struct gdbarch *gdbarch,
 	continue;
 
       default_print_one_register_info
-	(file, gdbarch_register_name (gdbarch, i),
+	(file, gdbarch_register_name (gdbarch, i), i,
 	 value_of_register (i, get_next_frame_sentinel_okay (frame)));
     }
 }
 
+static
 void
-registers_info (const char *addr_exp, int fpregs)
+inner_registers_info (const char *addr_exp, int fpregs, FILE* fp)
 {
   frame_info_ptr frame;
   struct gdbarch *gdbarch;
@@ -2292,8 +2298,14 @@ registers_info (const char *addr_exp, int fpregs)
 
   if (!addr_exp)
     {
-      gdbarch_print_registers_info (gdbarch, gdb_stdout,
-				    frame, -1, fpregs);
+      if (NULL == fp) {
+        gdbarch_print_registers_info (gdbarch, gdb_stdout,
+              frame, -1, fpregs);
+      } else {
+        stdio_file output_file(fp, false);
+        gdbarch_print_registers_info (gdbarch, (struct ui_file *)(&output_file),
+              frame, -1, fpregs);
+      }
       return;
     }
 
@@ -2340,6 +2352,7 @@ registers_info (const char *addr_exp, int fpregs)
 		   implementation prints.  */
 		default_print_one_register_info (gdb_stdout,
 						 regname,
+             regnum,
 						 regval);
 	      }
 	    else
@@ -2384,6 +2397,17 @@ registers_info (const char *addr_exp, int fpregs)
       error (_("Invalid register `%.*s'"), (int) (end - start), start);
     }
 }
+
+void
+registers_info_to_file (const char *addr_exp, int fpregs, FILE* fp) {
+  inner_registers_info(addr_exp, fpregs, fp);
+}
+
+void
+registers_info (const char *addr_exp, int fpregs) {
+  inner_registers_info(addr_exp, fpregs, NULL);
+}
+
 
 static void
 info_all_registers_command (const char *addr_exp, int from_tty)

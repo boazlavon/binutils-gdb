@@ -224,6 +224,7 @@ extern void post_create_inferior (int from_tty);
 extern void attach_command (const char *, int);
 
 extern void registers_info (const char *, int);
+extern void registers_info_to_file (const char *, int, FILE*);
 
 extern void continue_1 (int all_threads);
 
