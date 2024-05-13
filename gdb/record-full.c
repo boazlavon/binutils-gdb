@@ -717,6 +717,33 @@ create_state_record_dir(
     return EXIT_SUCCESS;
 }
 
+static
+void 
+print_eflags(
+  uint32_t eflags,
+  FILE *fp
+) {
+    fprintf(fp, "\t[ ");
+    if (eflags & 0x00000001) fprintf(fp, "CF ");
+    if (eflags & 0x00000004) fprintf(fp, "PF ");
+    if (eflags & 0x00000010) fprintf(fp, "AF ");
+    if (eflags & 0x00000040) fprintf(fp, "ZF ");
+    if (eflags & 0x00000080) fprintf(fp, "SF ");
+    if (eflags & 0x00000100) fprintf(fp, "TF ");
+    if (eflags & 0x00000200) fprintf(fp, "IF ");
+    if (eflags & 0x00000400) fprintf(fp, "DF ");
+    if (eflags & 0x00000800) fprintf(fp, "OF ");
+    if (eflags & 0x00003000) fprintf(fp, "IOPL=%d ", (eflags >> 12) & 3);  // Extract bits 12-13
+    if (eflags & 0x00004000) fprintf(fp, "NT ");
+    if (eflags & 0x00010000) fprintf(fp, "RF ");
+    if (eflags & 0x00020000) fprintf(fp, "VM ");
+    if (eflags & 0x00040000) fprintf(fp, "AC ");
+    if (eflags & 0x00080000) fprintf(fp, "VIF ");
+    if (eflags & 0x00100000) fprintf(fp, "VIP ");
+    if (eflags & 0x00200000) fprintf(fp, "ID ");
+    fprintf(fp, "]");
+}
+
 static 
 void 
 create_registers_dump(
@@ -771,6 +798,11 @@ create_registers_dump(
       switch (reglen) {
         case 4:
           fprintf(fp, "0x%08x", *reg32);
+
+          // eflags
+          if (17 == reg_i) {
+            print_eflags(*reg32, fp);
+          }
           break;
         case 8:
           fprintf(fp, "0x%016lx", *reg64);
