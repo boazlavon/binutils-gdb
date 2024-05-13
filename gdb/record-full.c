@@ -725,16 +725,79 @@ create_registers_dump(
   const char *record_state_dir, 
   const size_t record_state_dir_len
 ) {
-    int fpregs = 0;
+    // long double floating_point_value = 0;
+    size_t regname_len = 0;
+    unsigned char buffer[32] = {0};
     char reg_dump_path[512] = {0};
+
+    uint32_t *reg32 = (uint32_t*)((char*)buffer);
+    uint64_t *reg64 = (uint64_t*)((char*)buffer);
+
     snprintf(reg_dump_path, sizeof(reg_dump_path), "%s/reg_dump.txt", record_state_dir);
     FILE* fp = fopen((char*)reg_dump_path, "wb");
     if (!fp) {
         perror("Failed to open file");
         return;
     }
+
+    regcache *regcache = get_thread_regcache (inferior_thread ());
+    struct gdbarch *gdbarch = regcache->arch ();
+    int regnum = gdbarch_num_regs (regcache->arch ());
+    target_fetch_registers (regcache, -1);
+
+    const char *regname = NULL; 
+    size_t reglen = 0;
+
+    for (size_t reg_i = 0; reg_i < regnum; reg_i ++) {
+      regname_len = 0;
+      reglen = register_size(gdbarch, reg_i);
+      if (!reglen) {
+        continue;
+      }
+      buffer[reglen] = 0;
+
+      regcache->raw_read(reg_i, (gdb_byte*)buffer);
+      regname = gdbarch_register_name(gdbarch, reg_i);
+      if (NULL == regname) {
+        continue;
+      }
+
+      regname_len = strnlen(regname, 256);
+      if (!regname_len) {
+        continue;
+      }
+
+      fprintf(fp, "#%ld\t%s\t", reg_i, regname);
+      switch (reglen) {
+        case 4:
+          fprintf(fp, "0x%08x", *reg32);
+          break;
+        case 8:
+          fprintf(fp, "0x%016lx", *reg64);
+          break;
+        default:
+          for (size_t i = 0; i < reglen; i++) {
+            fprintf(fp, "%02x ", buffer[i]);  // Print each byte as a two-digit hexadecimal number
+          }
+
+          // floating point registers st0-st7
+          if ((24 <= reg_i) && (reg_i <= 31)) {
+            // __asm__("fstpt %0" : "=m" (floating_point_value));
+            // fprintf(fp, "%Lf", floating_point_value);
+          }
+
+          // xmm00 - xmm15
+          if ((40 <= reg_i) && (reg_i <= 55)) {
+            fprintf(fp, "%s", buffer);
+          }
+      }
+
+      fprintf(fp, "\n");  // Ensure the last line ends with a new line
+    }
     
-    registers_info(NULL, fpregs);
+    // not working
+    //registers_info_to_file(NULL, fpregs, fp);
+  
     fflush(fp);
     if (NULL != fp) {
       fclose(fp);
@@ -749,6 +812,7 @@ create_memory_dump(
   const char *record_state_dir, 
   const size_t record_state_dir_len
 ) {
+    return;
 
     char record_dump_path[512] = {0};
     char cmd[512] = {0};
@@ -792,7 +856,6 @@ dump_record_state(
     }
 
     create_memory_dump(record_number, rec, (char*)record_state_dir, dirname_len);
-    return;
     create_registers_dump(record_number, rec, (char*)record_state_dir, dirname_len);
 }
 
