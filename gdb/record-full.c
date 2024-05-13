@@ -678,7 +678,7 @@ create_state_record_dir(
 ) {
     size_t len = 0;
     // Get the process ID
-    pid_t pid = getpid();
+    pid_t pid = inferior_ptid.pid ();
 
     // Define the buffer for the process name and the path to read it from
     char process_name[256] = {0};
@@ -704,7 +704,9 @@ create_state_record_dir(
     // Create main dir
     len = snprintf(dirname, dirname_max_len, "/tmp/%s_%d", process_name, pid);
     (void)mkdir(dirname, 0755);
-    // printf("Directory created: %s\n", dirname);
+    if (record_number == 1) {
+      printf("Directory created: %s\n", dirname);
+    }
 
     // Create record dir
     len += snprintf(dirname + len, dirname_max_len - len, "/%d", record_number);
@@ -713,6 +715,30 @@ create_state_record_dir(
 
     (*dirname_len) = len;
     return EXIT_SUCCESS;
+}
+
+static 
+void 
+create_registers_dump(
+  const int record_number, 
+  struct record_full_entry *rec, 
+  const char *record_state_dir, 
+  const size_t record_state_dir_len
+) {
+    int fpregs = 0;
+    char reg_dump_path[512] = {0};
+    snprintf(reg_dump_path, sizeof(reg_dump_path), "%s/reg_dump.txt", record_state_dir);
+    FILE* fp = fopen((char*)reg_dump_path, "wb");
+    if (!fp) {
+        perror("Failed to open file");
+        return;
+    }
+    
+    registers_info(NULL, fpregs);
+    fflush(fp);
+    if (NULL != fp) {
+      fclose(fp);
+    }
 }
 
 static 
@@ -766,6 +792,8 @@ dump_record_state(
     }
 
     create_memory_dump(record_number, rec, (char*)record_state_dir, dirname_len);
+    return;
+    create_registers_dump(record_number, rec, (char*)record_state_dir, dirname_len);
 }
 
 /* Add a record_full_end type struct record_full_entry to
