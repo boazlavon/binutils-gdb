@@ -81,3 +81,6 @@ stamp-*
 .dirstamp
 gprofng/*
 binutils/bfdtest*
+**/Makefile
+**/Makefile.in
+binutils/testsuite/gentestdlls
